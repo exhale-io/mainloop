@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>mainloop.ca</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: #07070f;
+  }
+
+  canvas {
+    display: block;
+    position: fixed;
+    inset: 0;
+  }
+
+  #header {
+    position: fixed;
+    top: 2.2rem;
+    left: 2.5rem;
+    line-height: 1;
+  }
+
+  @keyframes glow-breathe {
+    0%, 100% {
+      text-shadow:
+        0 0  6px rgba(255, 255, 255, 0.15),
+        0 0 20px rgba(0, 255, 136, 0.35),
+        0 0 50px rgba(0, 255, 136, 0.15);
+    }
+    50% {
+      text-shadow:
+        0 0 10px rgba(255, 255, 255, 0.25),
+        0 0 30px rgba(0, 255, 136, 0.55),
+        0 0 70px rgba(0, 255, 136, 0.25),
+        0 0 120px rgba(0, 255, 136, 0.08);
+    }
+  }
+
+  #header h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 300;
+    font-size: clamp(2rem, 5.5vw, 4.2rem);
+    letter-spacing: -0.01em;
+    color: #fff;
+    animation: glow-breathe 3.5s ease-in-out infinite;
+    pointer-events: none;
+    position: relative;
+    z-index: 1;
+  }
+
+  #header hr {
+    border: none;
+    border-top: 2px solid rgba(0, 255, 136, 0.2);
+    box-shadow: 0 0 12px rgba(0, 255, 136, 0.15);
+    margin: -0.28rem 0 0.35rem;
+  }
+
+  #gh-link {
+    display: block;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 400;
+    font-size: clamp(0.7rem, 1.4vw, 0.88rem);
+    letter-spacing: 0.04em;
+    color: rgba(0, 255, 136, 0.45);
+    text-decoration: none;
+    transition: color 0.35s;
+  }
+
+  #gh-link:hover { color: rgba(0, 255, 136, 0.9); }
+
+  #scanlines {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(0, 0, 0, 0.045) 3px,
+      rgba(0, 0, 0, 0.045) 4px
+    );
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="header">
+  <h1>mainloop.ca</h1>
+  <hr>
+  <a id="gh-link" href="https://github.com/exhale-io" target="_blank" rel="noopener">
+    find me on github
+  </a>
+</div>
+
+<div id="scanlines"></div>
+
+<script>
+// ── Configuration ─────────────────────────────────────────────────────────────
+//
+//  CODE_LINES: each entry is null (blank line) or an array of {t, c} tokens.
+//  Set live: true on a token to replace its text with the live frame counter.
+//
+//  Colours — K.pre  preprocessor   K.kw  keywords    K.ty  types
+//             K.fn   functions      K.num  numbers     K.var  identifiers
+//             K.op   operators / punctuation
+
+const K = {
+  pre: '#4c9eff',
+  kw:  '#4c9eff',
+  ty:  '#7eb8ff',
+  fn:  '#00ff99',
+  num: '#ffaa44',
+  var: '#c8e0ff',
+  op:  '#3d4f66',
+};
+
+// LED chaser on STM32F4. TIM2_CNT is a real 32-bit hardware up-counter;
+// it starts incrementing the moment TIM2_CR1 bit 0 is set.
+const CODE_LINES = [
+  [ {t:'#include ',c:K.pre}, {t:'<stdint.h>',c:K.num} ],
+  null,
+  [ {t:'#define ',c:K.pre}, {t:'REG',c:K.fn}, {t:'(a)',c:K.op},
+    {t:' (*(volatile ',c:K.op}, {t:'uint32_t',c:K.ty}, {t:' *)(a))',c:K.op} ],
+  [ {t:'#define ',c:K.pre}, {t:'GPIO_BASE ',c:K.var}, {t:'0x40020000u',c:K.num} ],
+  [ {t:'#define ',c:K.pre}, {t:'GPIO_MODER ',c:K.var},
+    {t:'REG',c:K.fn}, {t:'(GPIO_BASE + ',c:K.op}, {t:'0x00',c:K.num}, {t:')',c:K.op} ],
+  [ {t:'#define ',c:K.pre}, {t:'GPIO_ODR ',c:K.var},
+    {t:'REG',c:K.fn}, {t:'(GPIO_BASE + ',c:K.op}, {t:'0x14',c:K.num}, {t:')',c:K.op} ],
+  [ {t:'#define ',c:K.pre}, {t:'TIM2_CR1 ',c:K.var},
+    {t:'REG',c:K.fn}, {t:'(',c:K.op}, {t:'0x40000000u',c:K.num}, {t:')',c:K.op} ],
+  [ {t:'#define ',c:K.pre}, {t:'TIM2_CNT ',c:K.var},
+    {t:'REG',c:K.fn}, {t:'(',c:K.op}, {t:'0x40000024u',c:K.num}, {t:')',c:K.op},
+    {t:' /* = ',c:K.op}, {t:'0',c:K.num, live:true}, {t:' */',c:K.op} ],
+  [ {t:'#define ',c:K.pre}, {t:'LED_COUNT ',c:K.var}, {t:'8u',c:K.num} ],
+  null,
+  [ {t:'static ',c:K.kw}, {t:'void ',c:K.kw}, {t:'delay',c:K.fn},
+    {t:'(volatile ',c:K.op}, {t:'uint32_t',c:K.ty},
+    {t:' d) { ',c:K.op}, {t:'while',c:K.kw}, {t:' (d--); }',c:K.op} ],
+  null,
+  [ {t:'void ',c:K.kw}, {t:'main',c:K.fn}, {t:'(void) {',c:K.op} ],
+  [ {t:'    GPIO_MODER |= ',c:K.op}, {t:'0x5555u',c:K.num}, {t:'; /* output */',c:K.op} ],
+  [ {t:'    TIM2_CR1 |= ',c:K.op}, {t:'1u',c:K.num}, {t:'; /* enable */',c:K.op} ],
+  [ {t:'    ',c:K.op}, {t:'for',c:K.kw}, {t:' (;;) {',c:K.op} ],
+  [ {t:'        ',c:K.op}, {t:'for',c:K.kw}, {t:' (',c:K.op},
+    {t:'uint32_t',c:K.ty}, {t:' i = ',c:K.op}, {t:'0',c:K.num},
+    {t:'; i < LED_COUNT; i++) {',c:K.op} ],
+  [ {t:'            GPIO_ODR = ',c:K.op}, {t:'1u',c:K.num}, {t:' << i;',c:K.op} ],
+  [ {t:'            ',c:K.op}, {t:'delay',c:K.fn},
+    {t:'(',c:K.op}, {t:'0x3FFFF',c:K.num}, {t:'); /* ~3ms */',c:K.op} ],
+  [ {t:'        }',c:K.op} ],
+  [ {t:'    }',c:K.op} ],
+  [ {t:'}',c:K.op} ],
+];
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const N      = CODE_LINES.length;
+
+let W, H, cx, cy;
+let frame = 0;
+const t0  = performance.now();
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Draw one tokenised code line ──────────────────────────────────────────────
+
+function drawLine(tokens, screenY, alpha, scale) {
+  if (!tokens) return;
+
+  const fontSize = Math.max(4, Math.round(Math.min(W, H) * 0.026 * scale));
+  ctx.font = `${fontSize}px 'Menlo','Consolas','Courier New',monospace`;
+
+  const full   = tokens.map(tok => tok.live ? frame.toString() : tok.t).join('');
+  const totalW = ctx.measureText(full).width;
+  let x = cx - totalW / 2;
+
+  const glow = alpha > 0.5 ? alpha * 7 : 0;
+
+  for (const tok of tokens) {
+    const text = tok.live ? frame.toString() : tok.t;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = tok.c;
+    ctx.shadowColor = tok.c;
+    ctx.shadowBlur  = glow;
+    ctx.fillText(text, x, screenY);
+    x += ctx.measureText(text).width;
+  }
+
+  ctx.shadowBlur  = 0;
+  ctx.globalAlpha = 1;
+}
+
+// ── Animation loop ────────────────────────────────────────────────────────────
+
+function loop(ts) {
+  frame++;
+
+  const t    = (ts - t0) / 1000;
+  const rotX = -t * (Math.PI * 2 / 16);   // one revolution every 16 s
+  const R    = Math.min(W, H) * 0.36;     // drum radius
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Subtle centre glow
+  const cGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+  cGrad.addColorStop(0, 'rgba(0,55,28,0.10)');
+  cGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = cGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Compute drum positions, sort back → front
+  const lines = CODE_LINES.map((tokens, i) => {
+    const angle   = (i / N) * Math.PI * 2 + rotX;
+    const cosA    = Math.cos(angle);
+    const screenY = cy + Math.sin(angle) * R;
+    const alpha   = cosA > 0 ? cosA * cosA : 0;
+    const scale   = 0.78 + 0.22 * Math.max(0, cosA);
+    return { tokens, screenY, cosA, alpha, scale };
+  }).sort((a, b) => a.cosA - b.cosA);
+
+  for (const { tokens, screenY, alpha, scale } of lines) {
+    if (alpha < 0.01) continue;
+    drawLine(tokens, screenY, alpha, scale);
+  }
+
+  // Top / bottom vignette
+  const fadeH = R * 0.35;
+
+  const vTop = ctx.createLinearGradient(0, 0, 0, cy - fadeH);
+  vTop.addColorStop(0, 'rgba(7,7,15,1)');
+  vTop.addColorStop(1, 'rgba(7,7,15,0)');
+  ctx.fillStyle = vTop;
+  ctx.fillRect(0, 0, W, cy - fadeH);
+
+  const vBot = ctx.createLinearGradient(0, cy + fadeH, 0, H);
+  vBot.addColorStop(0, 'rgba(7,7,15,0)');
+  vBot.addColorStop(1, 'rgba(7,7,15,1)');
+  ctx.fillStyle = vBot;
+  ctx.fillRect(0, cy + fadeH, W, H);
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
