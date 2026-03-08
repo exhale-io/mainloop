@@ -214,17 +214,22 @@ window.addEventListener('mouseup',    () => { dragging = false; canvas.style.cur
 window.addEventListener('mouseleave', () => { dragging = false; canvas.style.cursor = 'grab'; });
 canvas.style.cursor = 'grab';
 
-// Touch swipe
+// Touch swipe — velocity-based (same as mouse drag) so fast flicks register
 let touchLastY = null;
+let touchLastT = null;
 window.addEventListener('touchstart', e => {
   touchLastY = e.touches[0].clientY;
+  touchLastT = performance.now();
 }, { passive: true });
 window.addEventListener('touchmove', e => {
   e.preventDefault();
-  const y  = e.touches[0].clientY;
-  const dy = touchLastY - y;
-  extraVelocity = clampV(extraVelocity - dy * 0.008);
+  const now = performance.now();
+  const dt  = Math.max((now - touchLastT) / 1000, 0.001);
+  const y   = e.touches[0].clientY;
+  const dy  = touchLastY - y;
+  extraVelocity = clampV(-dy / dt * 0.012);
   touchLastY = y;
+  touchLastT = now;
 }, { passive: false });
 
 function resize() {
