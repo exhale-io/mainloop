@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' font-family='monospace' fill='%2300ff99'>{}</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -49,7 +49,7 @@
 
   #header h1 {
     font-family: 'Space Grotesk', sans-serif;
-    font-weight: 300;
+    font-weight: 600;
     font-size: clamp(2rem, 5.5vw, 4.2rem);
     letter-spacing: -0.01em;
     color: #fff;
@@ -171,15 +171,78 @@ const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 const N      = CODE_LINES.length;
 
-let W, H, cx, cy;
+let W, H, cx, cy, lineStartX;
 let frame = 0;
 const t0  = performance.now();
+
+// ── Fidget-spinner interaction ────────────────────────────────────────────────
+
+const BASE_SPEED = Math.PI * 2 / 16; // rad/s  (natural drum speed)
+const MAX_EXTRA  = Math.PI * 2 * 2;  // cap at ~2 extra revolutions/s
+let extraVelocity = 0;               // rad/s added by user input
+let rotOffset     = 0;               // accumulated extra radians
+let lastTs        = null;
+
+// Scroll — deltaY > 0 means scroll down → spin faster (same direction as drum)
+const clampV = v => Math.max(-MAX_EXTRA, Math.min(MAX_EXTRA, v));
+
+window.addEventListener('wheel', e => {
+  e.preventDefault();
+  extraVelocity = clampV(extraVelocity - e.deltaY * 0.004);
+}, { passive: false });
+
+// Mouse drag
+let dragging   = false;
+let dragLastY  = 0;
+let dragLastT  = 0;
+canvas.addEventListener('mousedown', e => {
+  dragging  = true;
+  dragLastY = e.clientY;
+  dragLastT = performance.now();
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const now = performance.now();
+  const dt  = Math.max((now - dragLastT) / 1000, 0.001);
+  const dy  = dragLastY - e.clientY;
+  extraVelocity = clampV(-dy / dt * 0.012);
+  dragLastY = e.clientY;
+  dragLastT = now;
+});
+window.addEventListener('mouseup',    () => { dragging = false; canvas.style.cursor = 'grab'; });
+window.addEventListener('mouseleave', () => { dragging = false; canvas.style.cursor = 'grab'; });
+canvas.style.cursor = 'grab';
+
+// Touch swipe
+let touchLastY = null;
+window.addEventListener('touchstart', e => {
+  touchLastY = e.touches[0].clientY;
+}, { passive: true });
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const y  = e.touches[0].clientY;
+  const dy = touchLastY - y;
+  extraVelocity = clampV(extraVelocity - dy * 0.008);
+  touchLastY = y;
+}, { passive: false });
 
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
   cx = W / 2;
   cy = H / 2;
+
+  // Measure widest line at scale=1 to left-align the block around centre
+  const fontSize = Math.max(4, Math.round(Math.min(W, H) * 0.026));
+  ctx.font = `${fontSize}px 'Menlo','Consolas','Courier New',monospace`;
+  let maxW = 0;
+  for (const tokens of CODE_LINES) {
+    if (!tokens) continue;
+    const w = ctx.measureText(tokens.map(t => t.t).join('')).width;
+    if (w > maxW) maxW = w;
+  }
+  lineStartX = cx - maxW / 2;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -192,9 +255,7 @@ function drawLine(tokens, screenY, alpha, scale) {
   const fontSize = Math.max(4, Math.round(Math.min(W, H) * 0.026 * scale));
   ctx.font = `${fontSize}px 'Menlo','Consolas','Courier New',monospace`;
 
-  const full   = tokens.map(tok => tok.live ? frame.toString() : tok.t).join('');
-  const totalW = ctx.measureText(full).width;
-  let x = cx - totalW / 2;
+  let x = lineStartX;
 
   const glow = alpha > 0.5 ? alpha * 7 : 0;
 
@@ -217,9 +278,16 @@ function drawLine(tokens, screenY, alpha, scale) {
 function loop(ts) {
   frame++;
 
+  const dt = lastTs ? (ts - lastTs) / 1000 : 0;
+  lastTs   = ts;
+
+  // Advance extra rotation then decay velocity back toward zero
+  rotOffset     += extraVelocity * dt;
+  extraVelocity *= Math.pow(0.97, dt * 60);   // ~97% per frame at 60 fps
+
   const t    = (ts - t0) / 1000;
-  const rotX = -t * (Math.PI * 2 / 16);   // one revolution every 16 s
-  const R    = Math.min(W, H) * 0.36;     // drum radius
+  const rotX = -t * BASE_SPEED + rotOffset;   // natural spin + user nudge
+  const R    = Math.min(W, H) * 0.36;         // drum radius
 
   ctx.clearRect(0, 0, W, H);
 
